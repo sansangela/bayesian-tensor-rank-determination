@@ -90,9 +90,9 @@ import sklearn.metrics
 
 from torch.optim.lr_scheduler import _LRScheduler
 
-from tensor_layers.layers import TensorizedEmbedding
+from tensor_layers.layers import TensorizedEmbedding, Q_TensorizedEmbedding
 import os
-#os.environ['CUDA_VISIBLE_DEVICES']=''
+os.environ['CUDA_VISIBLE_DEVICES']='2'
 
 exc = getattr(builtins, "IOError", "FileNotFoundError")
 
@@ -250,12 +250,22 @@ class DLRM_Net(nn.Module):
                     )
                 print(EE.shape)
                 """
-                EE = TensorizedEmbedding(
-                    tensor_type=args.tensor_type,
-                    max_rank=max_ranks[args.tensor_type].pop(0),
-                    shape=[shape0.pop(0), shape1],
-                    prior_type=args.prior_type,
-                    eta = args.eta)
+                if args.mixed_precision:
+                    EE = Q_TensorizedEmbedding(
+                        tensor_type=args.tensor_type,
+                        max_rank=max_ranks[args.tensor_type].pop(0),
+                        shape=[shape0.pop(0), shape1],
+                        prior_type=args.prior_type,
+                        eta = args.eta,
+                        bit_w = 4,
+                        scale_w = 2**(-5))
+                else:
+                    EE = TensorizedEmbedding(
+                        tensor_type=args.tensor_type,
+                        max_rank=max_ranks[args.tensor_type].pop(0),
+                        shape=[shape0.pop(0), shape1],
+                        prior_type=args.prior_type,
+                        eta = args.eta)
 
                 print(EE.tensor.prior_type)
                 print(EE.tensor.eta)
@@ -358,7 +368,7 @@ class DLRM_Net(nn.Module):
 
             E = emb_l[k]
 
-            if type(E) in [TensorizedEmbedding]:
+            if type(E) in [TensorizedEmbedding, Q_TensorizedEmbedding]:
                 assert (sparse_offset_group_batch.shape ==
                         sparse_index_group_batch.shape)
                 V = E(sparse_index_group_batch)
@@ -584,6 +594,7 @@ if __name__ == "__main__":
     parser.add_argument("--qr-threshold", type=int, default=200)
     parser.add_argument("--qr-operation", type=str, default="mult")
     parser.add_argument("--qr-collisions", type=int, default=4)
+    parser.add_argument("--mixed-precision", type=bool, default=False)
     # activations and loss
     parser.add_argument("--activation-function", type=str, default="relu")
     parser.add_argument("--loss-function", type=str,
@@ -669,6 +680,30 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     #    args = Namespace(activation_function='relu', arch_embedding_size='4-3-2', arch_interaction_itself=False, arch_interaction_op='dot', arch_mlp_bot='13-512-256-64-16', arch_mlp_top='512-256-1', arch_sparse_feature_size=16, data_generation='dataset', data_randomize='total', data_set='kaggle', data_size=1, data_sub_sample_rate=0.0, data_trace_enable_padding=False, data_trace_file='./input/dist_emb_j.log', debug_mode=False, enable_profiling=False, inference_only=False, learning_rate=0.1, load_model='', loss_function='bce', loss_threshold=0.0, loss_weights='1.0-1.0', lr_decay_start_step=0, lr_num_decay_steps=0, lr_num_warmup_steps=0, max_ind_range=-1, md_flag=False, md_round_dims=False, md_temperature=0.3, md_threshold=200, memory_map=True, mini_batch_size=128, mlperf_acc_threshold=0.0, mlperf_auc_threshold=0.0, mlperf_bin_loader=False, mlperf_bin_shuffle=False, mlperf_logging=False, nepochs=1, num_batches=0, num_indices_per_lookup=10, num_indices_per_lookup_fixed=False, num_workers=0, numpy_rand_seed=123, plot_compute_graph=False, print_freq=1024, print_precision=5, print_time=True, processed_data_file='./input/kaggleAdDisplayChallenge_processed.npz', qr_collisions=4, qr_flag=False, qr_operation='mult', qr_threshold=200, raw_data_file='./input/train.txt', round_targets=True, save_model='', save_onnx=False, sync_dense_params=True, test_freq=1024, test_mini_batch_size=-1, test_num_workers=16, use_gpu=False)
+    args = Namespace(
+        nepochs=2,
+        arch_sparse_feature_size=128,
+		arch_mlp_bot="13-512-256-256-128",
+	    arch_mlp_top="512-256-1",
+		data_generation='dataset',
+		data_set='kaggle',
+		raw_data_file='./input/train.txt',
+		print_time=True,
+		processed_data_file='./input/kaggleAdDisplayChallenge_processed.npz',
+	    loss_function='bce',
+		round_targets=True,
+		test_num_workers=16,
+		memory_map=True,
+		mini_batch_size=512,
+	    optimizer="Adam",
+		learning_rate=0.0005,
+	    tensor_type="TensorTrainMatrix",
+	    # use_gpu=1,
+		test_freq=10240,
+		print_freq=1024,
+		kl_multiplier=0.001,
+		no_kl_steps=50000
+    )
 
     print(args)
 
@@ -1005,7 +1040,7 @@ if __name__ == "__main__":
 
     print("time/loss/accuracy (if enabled):")
     with torch.autograd.profiler.profile(args.enable_profiling,
-                                         use_gpu) as prof:
+                                         use_cuda=use_gpu) as prof:
         while k < args.nepochs:
 
 
