@@ -29,9 +29,13 @@ class LowRankTensor(torch.nn.Module):
 
         self.trainable_variables = []
 
-        self._build_factors()
-        self._build_factor_distributions()
+        self._build_factors()   
+        self._build_factor_distributions()  
         self._build_low_rank_prior()
+
+        # # Half Precision
+        # for i in range(len(self.trainable_variables)):
+        #     self.trainable_variables[i] = self.trainable_variables[i].type(torch.float16)
 
         self.trainable_variables = torch.nn.ParameterList(self.trainable_variables)
 
@@ -98,6 +102,9 @@ class CP(LowRankTensor):
     #@tf.function
     def get_full(self):
         return tl.kruskal_to_tensor((self.weights, self.factors))
+
+    def get_full_factors(self,factors):
+        return tl.kruskal_to_tensor((self.weights,factors))
 
     def get_masked_factors(self):
         return [self.weights*factor for factor in self.factors]
@@ -316,6 +323,9 @@ class TensorTrain(LowRankTensor):
             return tl.tt_to_tensor(factors)
         else:
             return tl.tt_to_tensor(self.factors)
+    
+    def get_full_factors(self,factors):
+        return tl.tt_to_tensor(factors)
 
     def get_masked_factors(self):
         factors = [x*y for x,y in zip(self.factors,self.masks)]+[self.masks[-1].view([-1,1,1])*self.factors[-1]]
@@ -896,6 +906,9 @@ class TensorTrainMatrix(LowRankTensor):
 
         #convert all to tensorflow variable
         
+        # # Half Precision
+        # for i in range(len(self.factors)): 
+        #     self.factors[i] = self.factors[i].type(torch.float16)
 
         self.factors = [self.add_variable(x) for x in self.factors]
 
@@ -909,6 +922,10 @@ class TensorTrainMatrix(LowRankTensor):
             self.add_variable(factor_scale_init * torch.ones(factor.shape),trainable=self.learned_scale)
             for factor in self.factors
         ]
+
+        # # Half Precision
+        # for i in range(len(factor_scales)): 
+        #     factor_scales[i] = factor_scales[i].type(torch.float16)
 
         self.factor_distributions = []
 
